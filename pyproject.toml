@@ -15,4 +15,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.ruff]
+[tool.ruff]
 line-length = 100
+select = ["E", "F"]   
+ignore = ["E501"]     
