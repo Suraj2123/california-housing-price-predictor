@@ -8,7 +8,6 @@ End-to-end regression project using scikit-learn’s built-in California Housing
 - FastAPI prediction endpoint
 - CI with ruff + pytest
 
-## Quickstart (local)
 ## Evaluation artifacts
 
 After training, generate evaluation reports:
