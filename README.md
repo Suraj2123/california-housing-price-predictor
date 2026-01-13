@@ -9,8 +9,12 @@ End-to-end regression project using scikit-learn’s built-in California Housing
 - CI with ruff + pytest
 
 ## Quickstart (local)
+## Evaluation artifacts
+
+After training, generate evaluation reports:
 
 ```bash
+python -m chpp.evaluate
 python -m venv .venv
 source .venv/bin/activate
 pip install -U pip
