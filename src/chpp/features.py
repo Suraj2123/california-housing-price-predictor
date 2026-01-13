@@ -7,15 +7,7 @@ TARGET_COL = "MedHouseVal"
 
 
 def add_ratio_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add simple, explainable ratio features commonly used for this dataset.
-    Keeps it "portfolio-real": small but meaningful feature engineering.
-    """
     out = df.copy()
-
-    households = out["HouseAge"] * 0 + 1  
-    if "Households" in out.columns:
-        households = out["Households"].replace(0, 1)
 
     if "AveRooms" in out.columns and "AveBedrms" in out.columns:
         out["RoomsPerBed"] = out["AveRooms"] / out["AveBedrms"].replace(0, 1)
