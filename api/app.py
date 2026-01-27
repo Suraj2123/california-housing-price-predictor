@@ -43,7 +43,9 @@ try:
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
-    rmse = mean_squared_error(y_test, y_pred, squared=False)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = float(np.sqrt(mse))
+
 
 
 except Exception as e:
