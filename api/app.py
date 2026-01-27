@@ -35,7 +35,6 @@ try:
     X = data.data[FEATURE_NAMES]
     y = data.target
 
-    # KEEP the test set so we can compute RMSE
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
@@ -43,9 +42,9 @@ try:
     model = GradientBoostingRegressor(random_state=42)
     model.fit(X_train, y_train)
 
-    # Compute RMSE on held-out test set
     y_pred = model.predict(X_test)
     rmse = mean_squared_error(y_test, y_pred, squared=False)
+
 
 except Exception as e:
     load_error = str(e)
@@ -66,23 +65,17 @@ def health() -> Dict[str, str]:
 
 @app.get("/model-info")
 def model_info() -> Dict:
-    if rmse is None:
-        # Avoid crashing if something went wrong at startup
-        return {
-            "model_loaded": model is not None,
-            "error": load_error or "rmse not available",
-            "features": FEATURE_NAMES,
-        }
-
     return {
         "model_loaded": model is not None,
         "model_type": "GradientBoostingRegressor",
         "training_data": "sklearn California Housing",
         "features": FEATURE_NAMES,
-        "rmse_hundreds_k": float(rmse),
-        "rmse_usd": round(float(rmse) * 100_000, 2),
+        "rmse_hundreds_k": float(rmse) if rmse is not None else None,
+        "rmse_usd": round(float(rmse) * 100_000, 2) if rmse is not None else None,
         "trained_at_startup": True,
+        "error": load_error,
     }
+
 
 
 @app.post("/predict")
