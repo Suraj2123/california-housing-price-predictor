@@ -3,34 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
-import joblib
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from sklearn.datasets import fetch_california_housing
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.model_selection import train_test_split
 
-# ------------------------------------------------------------------------------
-# App
-# ------------------------------------------------------------------------------
 app = FastAPI(title="California Housing Price Predictor")
 
-# ------------------------------------------------------------------------------
-# Paths
-# ------------------------------------------------------------------------------
-ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-MODEL_PATH = ROOT / "artifacts" / "models" / "model.joblib"
-
-# ------------------------------------------------------------------------------
-# Load model at startup (fail fast if missing)
-# ------------------------------------------------------------------------------
-try:
-    model = joblib.load(MODEL_PATH)
-except Exception as e:
-    model = None
-    load_error = str(e)
-
-# Feature order expected by the model (sklearn California Housing)
 FEATURE_NAMES = [
     "MedInc",
     "HouseAge",
@@ -42,68 +25,61 @@ FEATURE_NAMES = [
     "Longitude",
 ]
 
-# ------------------------------------------------------------------------------
-# UI
-# ------------------------------------------------------------------------------
-@app.get("/", response_class=HTMLResponse)
-def home() -> HTMLResponse:
-    return HTMLResponse(
-        (TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
+model = None
+load_error = None
+
+try:
+    data = fetch_california_housing(as_frame=True)
+    X = data.data[FEATURE_NAMES]
+    y = data.target
+
+    X_train, _, y_train, _ = train_test_split(
+        X, y, test_size=0.2, random_state=42
     )
 
-# ------------------------------------------------------------------------------
-# Health (Render needs this)
-# ------------------------------------------------------------------------------
+    model = GradientBoostingRegressor(random_state=42)
+    model.fit(X_train, y_train)
+except Exception as e:
+    load_error = str(e)
+
+
+@app.get("/", response_class=HTMLResponse)
+def home() -> HTMLResponse:
+    return HTMLResponse((TEMPLATES_DIR / "index.html").read_text(encoding="utf-8"))
+
+
 @app.get("/health")
 @app.get("/healthz")
 def health() -> Dict[str, str]:
     if model is None:
-        return {"status": "error", "detail": "model not loaded"}
+        return {"status": "error", "detail": load_error or "model not ready"}
     return {"status": "ok"}
 
-# ------------------------------------------------------------------------------
-# Model info 
-# ------------------------------------------------------------------------------
+
 @app.get("/model-info")
 def model_info() -> Dict:
     return {
         "model_loaded": model is not None,
-        "model_path": str(MODEL_PATH),
+        "model_type": "GradientBoostingRegressor",
+        "training_data": "sklearn California Housing",
         "features": FEATURE_NAMES,
-        "framework": "scikit-learn",
-        "notes": "End-to-end regression service with FastAPI",
+        "trained_at_startup": True,
     }
 
-# ------------------------------------------------------------------------------
-# Prediction
-# ------------------------------------------------------------------------------
+
 @app.post("/predict")
 def predict(payload: Dict[str, float]) -> Dict:
     if model is None:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Model not loaded: {load_error}",
-        )
+        raise HTTPException(status_code=500, detail=f"Model not ready: {load_error}")
 
-    # Validate payload
     try:
         x = np.array([[payload[f] for f in FEATURE_NAMES]], dtype=float)
     except KeyError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing feature: {e.args[0]}",
-        )
+        raise HTTPException(status_code=400, detail=f"Missing feature: {e.args[0]}")
 
-    # Predict
     try:
         y = float(model.predict(x)[0])
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Prediction failed: {e}",
-        )
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
-    return {
-        "prediction": y,
-        "units": "median_house_value",
-    }
+    return {"prediction": y, "units": "median_house_value"}
