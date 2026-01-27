@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>California Housing Predictor</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background: #0b0f19; color: #e7eaf0; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 60px; }
+    .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 16px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    .sub { margin: 0 0 18px; color: rgba(231,234,240,0.75); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    label { display:block; font-size: 12px; color: rgba(231,234,240,0.75); margin-bottom: 6px; }
+    input { width:100%; padding:10px 12px; border-radius: 10px; border:1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.25); color:#e7eaf0; }
+    .row { display:flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    button { padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.10); color:#e7eaf0; cursor:pointer; }
+    button:hover { background: rgba(255,255,255,0.16); }
+    .out { margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.10); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; white-space: pre-wrap; }
+    a { color: #9cc4ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>California Housing Price Predictor</h1>
+      <p class="sub">
+        Live demo • <a href="/docs" target="_blank">API Docs</a> • <a href="/model-info" target="_blank">Model Info</a> • <a href="/health" target="_blank">Health</a>
+      </p>
+
+      <div class="grid" id="form"></div>
+
+      <div class="row">
+        <button id="tryBtn">Try a sample</button>
+        <button id="predictBtn">Predict</button>
+      </div>
+
+      <div class="out">
+        <div><strong>Result</strong></div>
+        <div id="result" class="mono">Click “Try a sample” then “Predict”.</div>
+      </div>
+
+      <div class="out">
+        <div><strong>cURL</strong></div>
+        <div class="mono" id="curl"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // These are the classic sklearn California Housing feature names.
+  // If your API expects different keys, tell me your /predict schema and I’ll align it exactly.
+  const fields = [
+    { key: "MedInc", label: "Median Income (MedInc)" },
+    { key: "HouseAge", label: "House Age (HouseAge)" },
+    { key: "AveRooms", label: "Avg Rooms (AveRooms)" },
+    { key: "AveBedrms", label: "Avg Bedrooms (AveBedrms)" },
+    { key: "Population", label: "Population" },
+    { key: "AveOccup", label: "Avg Occupancy (AveOccup)" },
+    { key: "Latitude", label: "Latitude" },
+    { key: "Longitude", label: "Longitude" },
+  ];
+
+  const form = document.getElementById("form");
+  const inputs = {};
+
+  fields.forEach(f => {
+    const div = document.createElement("div");
+    const label = document.createElement("label");
+    label.textContent = f.label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "any";
+    input.placeholder = "0";
+    div.appendChild(label);
+    div.appendChild(input);
+    form.appendChild(div);
+    inputs[f.key] = input;
+  });
+
+  function currentPayload() {
+    const x = {};
+    fields.forEach(f => x[f.key] = Number(inputs[f.key].value));
+    return x;
+  }
+
+  function setSample() {
+    // Reasonable sample (not necessarily realistic everywhere).
+    const sample = {
+      MedInc: 5.0, HouseAge: 25, AveRooms: 5.5, AveBedrms: 1.0,
+      Population: 1200, AveOccup: 2.8, Latitude: 34.05, Longitude: -118.25
+    };
+    fields.forEach(f => inputs[f.key].value = sample[f.key]);
+  }
+
+  function setCurl(payload) {
+    const body = JSON.stringify(payload, null, 2);
+    document.getElementById("curl").textContent =
+`curl -X POST "${location.origin}/predict" \\
+  -H "Content-Type: application/json" \\
+  -d '${body.replace(/'/g, "'\\''")}'`;
+  }
+
+  async function predict() {
+    const payload = currentPayload();
+    setCurl(payload);
+
+    const resEl = document.getElementById("result");
+    resEl.textContent = "Predicting...";
+    try {
+      const r = await fetch("/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const text = await r.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = text; }
+
+      if (!r.ok) {
+        resEl.textContent = `Error ${r.status}:\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}`;
+        return;
+      }
+
+      resEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    } catch (e) {
+      resEl.textContent = `Request failed:\n${String(e)}`;
+    }
+  }
+
+  document.getElementById("tryBtn").addEventListener("click", () => { setSample(); setCurl(currentPayload()); });
+  document.getElementById("predictBtn").addEventListener("click", predict);
+
+  // Initialize cURL box
+  setCurl(currentPayload());
+</script>
+</body>
+</html>
