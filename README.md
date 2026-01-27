@@ -135,18 +135,6 @@ Key configuration:
 - Health check path: /healthz
 
 ---
-
-## Notes and Limitations
-
-- The live demo trains the model at application startup for simplicity and reliability.
-- A production system would typically:
-  - train models offline
-  - version artifacts
-  - load models from an artifact registry
-  - monitor drift and performance over time
-
----
-
 ## Author
 
 Suraj Yarrapathruni
