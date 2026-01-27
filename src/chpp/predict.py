@@ -1,30 +1,39 @@
 from __future__ import annotations
 
-from pathlib import Path
-import joblib
-import pandas as pd
+from typing import Any, Dict, Sequence
 
-MODEL_PATH = Path("artifacts/models/model.joblib")
+import numpy as np
 
 
-def load_model():
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"Model not found at {MODEL_PATH}. Train first: python -m chpp.train"
-        )
-    return joblib.load(MODEL_PATH)
+FEATURE_NAMES: list[str] = [
+    "MedInc",
+    "HouseAge",
+    "AveRooms",
+    "AveBedrms",
+    "Population",
+    "AveOccup",
+    "Latitude",
+    "Longitude",
+]
 
 
-def predict_one(features: dict) -> float:
-    model = load_model()
-    X = pd.DataFrame([features])
-    pred = model.predict(X)[0]
+def make_feature_row(payload: Dict[str, float], feature_names: Sequence[str] = FEATURE_NAMES) -> np.ndarray:
+    """
+    Convert a JSON payload into a (1, n_features) numpy row in the expected feature order.
+    """
+    try:
+        row = np.array([[payload[f] for f in feature_names]], dtype=float)
+    except KeyError as e:
+        missing = e.args[0]
+        raise KeyError(f"Missing feature: {missing}") from e
+    return row
+
+
+def predict_one(model: Any, payload: Dict[str, float]) -> float:
+    """
+    Predict a single target value using a fitted sklearn-like model with .predict().
+    """
+    x = make_feature_row(payload)
+    pred = model.predict(x)[0]
     return float(pred)
-
-y = float(model.predict(x)[0])
-return {
-  "prediction_hundreds_k": y,
-  "prediction_usd": round(y * 100_000, 2),
-  "units": "California Housing target (1.0 = $100,000)"
-}
 
