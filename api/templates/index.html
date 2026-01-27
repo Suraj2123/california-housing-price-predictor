@@ -52,8 +52,6 @@
   </div>
 
 <script>
-  // These are the classic sklearn California Housing feature names.
-  // If your API expects different keys, tell me your /predict schema and I’ll align it exactly.
   const fields = [
     { key: "MedInc", label: "Median Income (MedInc)" },
     { key: "HouseAge", label: "House Age (HouseAge)" },
@@ -126,7 +124,14 @@
         return;
       }
 
-      resEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      if (typeof data === "object" && data.prediction_usd != null && data.rmse_usd != null) {
+        const p = Number(data.prediction_usd).toLocaleString(undefined, {maximumFractionDigits: 0});
+        const e = Number(data.rmse_usd).toLocaleString(undefined, {maximumFractionDigits: 0});
+        resEl.textContent = `Predicted median house value: $${p}\nTypical error (RMSE): ± $${e}\n\nRaw:\n${JSON.stringify(data, null, 2)}`;
+      } else {
+        resEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      }
+
     } catch (e) {
       resEl.textContent = `Request failed:\n${String(e)}`;
     }
