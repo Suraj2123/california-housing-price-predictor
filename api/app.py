@@ -1,34 +1,26 @@
-from __future__ import annotations
-
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
-from chpp.predict import predict_one
+app = FastAPI()
 
-app = FastAPI(title="California Housing Price Predictor", version="0.1.0")
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-
-class PredictRequest(BaseModel):
-    MedInc: float = Field(..., ge=0)
-    HouseAge: float = Field(..., ge=0)
-    AveRooms: float = Field(..., ge=0)
-    AveBedrms: float = Field(..., ge=0)
-    Population: float = Field(..., ge=0)
-    AveOccup: float = Field(..., ge=0)
-    Latitude: float
-    Longitude: float
-
-
-class PredictResponse(BaseModel):
-    prediction: float
-
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return (TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+@app.get("/model-info")
+def model_info():
+    # TODO: replace with real values from your training artifacts/metrics.json
+    return {
+        "model_type": "your-model-here",
+        "features": 8,
+        "notes": "Fill this from metrics/artifacts so reviewers see governance + reproducibility."
+    }
 
-@app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest):
-    pred = predict_one(req.model_dump())
-    return PredictResponse(prediction=pred)
