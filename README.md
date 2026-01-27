@@ -1,28 +1,20 @@
 # California Housing Price Predictor
 
-An end-to-end regression project built using scikit-learn’s California Housing dataset.
-This project demonstrates how to structure, train, test, and serve a machine learning
-model using production-style engineering practices.
+Production-style machine learning regression service demonstrating end-to-end model training, evaluation, and deployment with a live interactive demo.
 
-## Project Highlights
-- Modular ML pipeline (data loading, feature engineering, training, inference)
-- Train / validation / test split
-- Baseline → improved model workflow (extensible)
-- Saved model artifacts and metrics
-- FastAPI-based prediction service
-- Automated CI with ruff (linting) and pytest
-- Versioned release and documented model card
+This project treats **evaluation and uncertainty as first-class concerns**, returning both predictions and a held-out test RMSE to communicate typical error — mirroring real-world ML engineering practices.
 
-## Repository Structure
-src/chpp/        # Core ML package  
-api/             # FastAPI application  
-tests/           # CI-safe smoke tests  
-.github/         # GitHub Actions CI  
+---
 
-## Setup
+## Live Demo
+
+- **Web App:** https://california-housing-price-predictor-m8ks.onrender.com/
+- **API Docs (Swagger):** https://california-housing-price-predictor-m8ks.onrender.com/docs
+- **Model Info:** https://california-housing-price-predictor-m8ks.onrender.com/model-info
+
+### Example Prediction
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-pip install -e .
+curl -X POST "https://california-housing-price-predictor-m8ks.onrender.com/predict" \
+  -H "Content-Type: application/json" \
+  -d '{"MedInc":5,"HouseAge":25,"AveRooms":5.5,"AveBedrms":1,"Population":1200,"AveOccup":2.8,"Latitude":34.05,"Longitude":-118.25}'
