@@ -20,3 +20,11 @@ def predict_one(features: dict) -> float:
     X = pd.DataFrame([features])
     pred = model.predict(X)[0]
     return float(pred)
+
+y = float(model.predict(x)[0])
+return {
+  "prediction_hundreds_k": y,
+  "prediction_usd": round(y * 100_000, 2),
+  "units": "California Housing target (1.0 = $100,000)"
+}
+
