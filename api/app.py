@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
 from chpp.features import ENGINEERED_FEATURES
-from chpp.predict import FEATURE_NAMES, predict_one
+from chpp.predict import FEATURE_NAMES, predict_many, predict_one
 from chpp.train import train_model
 
 app = FastAPI(title="California Housing Price Predictor")
@@ -49,6 +49,14 @@ class PredictionResponse(BaseModel):
     rmse_usd: float | None
     units: str
     note: str
+
+
+class BatchPredictionRequest(BaseModel):
+    items: list[HousingPayload] = Field(..., min_length=1)
+
+
+class BatchPredictionResponse(BaseModel):
+    predictions: list[PredictionResponse]
 
 
 @dataclass(frozen=True)
@@ -118,6 +126,17 @@ def _payload_to_dict(payload: HousingPayload) -> Dict[str, float]:
     return payload.dict()
 
 
+def _build_prediction_response(y: float, rmse: float | None) -> PredictionResponse:
+    return PredictionResponse(
+        prediction_hundreds_k=y,
+        prediction_usd=round(y * 100_000, 2),
+        rmse_hundreds_k=float(rmse) if rmse is not None else None,
+        rmse_usd=round(float(rmse) * 100_000, 2) if rmse is not None else None,
+        units="1.0 = $100,000",
+        note="RMSE computed on held-out test split (random_state=42)",
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     return HTMLResponse((TEMPLATES_DIR / "index.html").read_text(encoding="utf-8"))
@@ -166,13 +185,25 @@ def predict(payload: HousingPayload) -> PredictionResponse:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}") from e
 
     rmse = _metrics_rmse(state.metrics)
-    return PredictionResponse(
-        prediction_hundreds_k=y,
-        prediction_usd=round(y * 100_000, 2),
-        rmse_hundreds_k=float(rmse) if rmse is not None else None,
-        rmse_usd=round(float(rmse) * 100_000, 2) if rmse is not None else None,
-        units="1.0 = $100,000",
-        note="RMSE computed on held-out test split (random_state=42)",
-    )
+    return _build_prediction_response(y, rmse)
+
+
+@app.post("/predict-batch", response_model=BatchPredictionResponse)
+def predict_batch(payload: BatchPredictionRequest) -> BatchPredictionResponse:
+    state = get_model_state()
+    if state.model is None:
+        raise HTTPException(status_code=500, detail=f"Model not ready: {state.error}")
+
+    rmse = _metrics_rmse(state.metrics)
+    try:
+        payloads = [_payload_to_dict(item) for item in payload.items]
+        preds = predict_many(state.model, payloads)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}") from e
+
+    responses = [_build_prediction_response(pred, rmse) for pred in preds]
+    return BatchPredictionResponse(predictions=responses)
 
 

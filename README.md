@@ -8,7 +8,8 @@ This project treats evaluation and uncertainty as first-class concerns, returnin
 
 ## Live Demo
 
-- Web App: https://california-housing-price-predictor-m8ks.onrender.com/
+- Web App (Render): https://california-housing-price-predictor-m8ks.onrender.com/
+- Web App (Railway): https://chpp-demo-production.up.railway.app/
 - API Docs (Swagger): https://california-housing-price-predictor-m8ks.onrender.com/docs
 - Model Info: https://california-housing-price-predictor-m8ks.onrender.com/model-info
 
@@ -84,6 +85,7 @@ RMSE is computed on a held-out test split and exposed via the API to communicate
 - GET /healthz     — Health check (Render)
 - GET /model-info  — Model metadata and evaluation metrics
 - POST /predict    — Predict median house value
+- POST /predict-batch — Predict multiple rows in one request
 
 ### Request body for POST /predict
 
@@ -96,6 +98,23 @@ RMSE is computed on a held-out test split and exposed via the API to communicate
       "AveOccup": 2.8,
       "Latitude": 34.05,
       "Longitude": -118.25
+    }
+
+### Request body for POST /predict-batch
+
+    {
+      "items": [
+        {
+          "MedInc": 5,
+          "HouseAge": 25,
+          "AveRooms": 5.5,
+          "AveBedrms": 1,
+          "Population": 1200,
+          "AveOccup": 2.8,
+          "Latitude": 34.05,
+          "Longitude": -118.25
+        }
+      ]
     }
 
 ---
