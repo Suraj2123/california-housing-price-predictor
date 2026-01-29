@@ -4,6 +4,7 @@ import pandas as pd
 
 
 TARGET_COL = "MedHouseVal"
+ENGINEERED_FEATURES = ["RoomsPerBed", "AveOccupCapped"]
 
 
 def add_ratio_features(df: pd.DataFrame) -> pd.DataFrame:

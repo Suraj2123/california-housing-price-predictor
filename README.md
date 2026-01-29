@@ -123,6 +123,28 @@ Then open:
 
 ---
 
+## Training
+
+You can generate and persist model artifacts locally:
+
+    python -m chpp.train
+
+This writes:
+- artifacts/models/model.joblib
+- artifacts/reports/metrics.json
+
+If those files exist, the API will load them on startup; otherwise it trains in-memory on first request.
+
+---
+
+## Testing
+
+Run the test suite:
+
+    pytest -q
+
+---
+
 ## Deployment
 
 This service is deployed on Render as a Docker web service.

@@ -51,12 +51,12 @@ def _build_preprocess_pipeline(X):
     return preprocessor
 
 
-def _build_model(model_name: str):
+def _build_model(model_name: str, random_state: int):
     if model_name == "linear":
         return LinearRegression()
     if model_name == "hgb":
         return HistGradientBoostingRegressor(
-            random_state=42,
+            random_state=random_state,
             max_depth=None,
             learning_rate=0.08,
             max_iter=350,
@@ -71,11 +71,8 @@ def _metrics(y_true, y_pred) -> dict:
     return {"rmse": rmse, "mae": mae, "r2": r2}
 
 
-def main() -> int:
-    cfg = TrainConfig()
-
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+def train_model(cfg: TrainConfig | None = None) -> tuple[Pipeline, dict]:
+    cfg = cfg or TrainConfig()
 
     df = load_raw_dataframe()
     df = add_ratio_features(df)
@@ -96,7 +93,7 @@ def main() -> int:
     )
 
     preprocessor = _build_preprocess_pipeline(X_train)
-    model = _build_model(cfg.model_name)
+    model = _build_model(cfg.model_name, cfg.random_state)
 
     pipe = Pipeline(
         steps=[
@@ -115,14 +112,28 @@ def main() -> int:
         "val": _metrics(y_val, val_pred),
         "test": _metrics(y_test, test_pred),
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        "feature_names": list(X_train.columns),
     }
 
-    # Save model + metrics
+    return pipe, metrics
+
+
+def save_artifacts(model: Pipeline, metrics: dict) -> Path:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
     model_path = MODELS_DIR / "model.joblib"
-    joblib.dump(pipe, model_path)
+    joblib.dump(model, model_path)
 
     with open(REPORTS_DIR / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
+
+    return model_path
+
+
+def main() -> int:
+    model, metrics = train_model()
+    model_path = save_artifacts(model, metrics)
 
     print("Saved:", model_path)
     print("Metrics:", json.dumps(metrics, indent=2))

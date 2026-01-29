@@ -1,55 +1,121 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import lru_cache
+import json
+import math
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
-import numpy as np
+import joblib
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
-from sklearn.datasets import fetch_california_housing
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
+from pydantic import BaseModel, Field, field_validator
+
+from chpp.features import ENGINEERED_FEATURES
+from chpp.predict import FEATURE_NAMES, predict_one
+from chpp.train import train_model
 
 app = FastAPI(title="California Housing Price Predictor")
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-
-FEATURE_NAMES = [
-    "MedInc",
-    "HouseAge",
-    "AveRooms",
-    "AveBedrms",
-    "Population",
-    "AveOccup",
-    "Latitude",
-    "Longitude",
-]
-
-model = None
-rmse = None
-load_error = None
-
-try:
-    data = fetch_california_housing(as_frame=True)
-    X = data.data[FEATURE_NAMES]
-    y = data.target
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-
-    model = GradientBoostingRegressor(random_state=42)
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = float(np.sqrt(mse))
+ARTIFACTS_DIR = Path("artifacts")
+MODEL_PATH = ARTIFACTS_DIR / "models" / "model.joblib"
+METRICS_PATH = ARTIFACTS_DIR / "reports" / "metrics.json"
 
 
+class HousingPayload(BaseModel):
+    MedInc: float = Field(..., ge=0, description="Median income in tens of thousands")
+    HouseAge: float = Field(..., ge=0, description="Median house age")
+    AveRooms: float = Field(..., ge=0, description="Average rooms per household")
+    AveBedrms: float = Field(..., ge=0, description="Average bedrooms per household")
+    Population: float = Field(..., ge=0, description="Block population")
+    AveOccup: float = Field(..., ge=0, description="Average household occupancy")
+    Latitude: float = Field(..., ge=-90, le=90, description="Latitude")
+    Longitude: float = Field(..., ge=-180, le=180, description="Longitude")
 
-except Exception as e:
-    load_error = str(e)
+    @field_validator("*")
+    @classmethod
+    def ensure_finite(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("Value must be finite.")
+        return value
+
+
+class PredictionResponse(BaseModel):
+    prediction_hundreds_k: float
+    prediction_usd: float
+    rmse_hundreds_k: float | None
+    rmse_usd: float | None
+    units: str
+    note: str
+
+
+@dataclass(frozen=True)
+class ModelState:
+    model: Any | None
+    metrics: dict | None
+    error: str | None
+    trained_at: str | None
+    source: str
+    model_type: str | None
+
+
+def _load_artifacts() -> tuple[Any, dict] | None:
+    if MODEL_PATH.exists() and METRICS_PATH.exists():
+        model = joblib.load(MODEL_PATH)
+        metrics = json.loads(METRICS_PATH.read_text(encoding="utf-8"))
+        return model, metrics
+    return None
+
+
+def _metrics_rmse(metrics: dict | None) -> float | None:
+    if not metrics:
+        return None
+    test = metrics.get("test", {})
+    rmse = test.get("rmse")
+    return float(rmse) if rmse is not None else None
+
+
+@lru_cache
+def get_model_state() -> ModelState:
+    try:
+        artifacts = _load_artifacts()
+        if artifacts:
+            model, metrics = artifacts
+            return ModelState(
+                model=model,
+                metrics=metrics,
+                error=None,
+                trained_at=metrics.get("timestamp"),
+                source="artifacts",
+                model_type=metrics.get("model_name", type(model).__name__),
+            )
+
+        model, metrics = train_model()
+        return ModelState(
+            model=model,
+            metrics=metrics,
+            error=None,
+            trained_at=metrics.get("timestamp"),
+            source="trained-in-memory",
+            model_type=metrics.get("model_name", type(model).__name__),
+        )
+    except Exception as exc:
+        return ModelState(
+            model=None,
+            metrics=None,
+            error=str(exc),
+            trained_at=None,
+            source="error",
+            model_type=None,
+        )
+
+
+def _payload_to_dict(payload: HousingPayload) -> Dict[str, float]:
+    if hasattr(payload, "model_dump"):
+        return payload.model_dump()
+    return payload.dict()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -60,48 +126,53 @@ def home() -> HTMLResponse:
 @app.get("/health")
 @app.get("/healthz")
 def health() -> Dict[str, str]:
-    if model is None or rmse is None:
-        return {"status": "error", "detail": load_error or "model not ready"}
+    state = get_model_state()
+    if state.model is None:
+        return {"status": "error", "detail": state.error or "model not ready"}
     return {"status": "ok"}
 
 
 @app.get("/model-info")
 def model_info() -> Dict:
+    state = get_model_state()
+    rmse = _metrics_rmse(state.metrics)
     return {
-        "model_loaded": model is not None,
-        "model_type": "GradientBoostingRegressor",
+        "model_loaded": state.model is not None,
+        "model_type": state.model_type,
         "training_data": "sklearn California Housing",
-        "features": FEATURE_NAMES,
+        "base_features": FEATURE_NAMES,
+        "engineered_features": ENGINEERED_FEATURES,
         "rmse_hundreds_k": float(rmse) if rmse is not None else None,
         "rmse_usd": round(float(rmse) * 100_000, 2) if rmse is not None else None,
-        "trained_at_startup": True,
-        "error": load_error,
+        "trained_at": state.trained_at,
+        "source": state.source,
+        "metrics": state.metrics,
+        "error": state.error,
     }
 
 
 
-@app.post("/predict")
-def predict(payload: Dict[str, float]) -> Dict:
-    if model is None or rmse is None:
-        raise HTTPException(status_code=500, detail=f"Model not ready: {load_error}")
+@app.post("/predict", response_model=PredictionResponse)
+def predict(payload: HousingPayload) -> PredictionResponse:
+    state = get_model_state()
+    if state.model is None:
+        raise HTTPException(status_code=500, detail=f"Model not ready: {state.error}")
 
     try:
-        x = np.array([[payload[f] for f in FEATURE_NAMES]], dtype=float)
+        y = predict_one(state.model, _payload_to_dict(payload))
     except KeyError as e:
-        raise HTTPException(status_code=400, detail=f"Missing feature: {e.args[0]}")
-
-    try:
-        y = float(model.predict(x)[0])
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}") from e
 
-    return {
-        "prediction_hundreds_k": y,
-        "prediction_usd": round(y * 100_000, 2),
-        "rmse_hundreds_k": float(rmse),
-        "rmse_usd": round(float(rmse) * 100_000, 2),
-        "units": "1.0 = $100,000",
-        "note": "RMSE computed on held-out test split (random_state=42)",
-    }
+    rmse = _metrics_rmse(state.metrics)
+    return PredictionResponse(
+        prediction_hundreds_k=y,
+        prediction_usd=round(y * 100_000, 2),
+        rmse_hundreds_k=float(rmse) if rmse is not None else None,
+        rmse_usd=round(float(rmse) * 100_000, 2) if rmse is not None else None,
+        units="1.0 = $100,000",
+        note="RMSE computed on held-out test split (random_state=42)",
+    )
 
 
