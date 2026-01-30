@@ -65,13 +65,13 @@ This is framed as a regression problem where:
 
 ## Model and Evaluation
 
-- Model: GradientBoostingRegressor
+- Models compared: Linear Regression, HistGradientBoostingRegressor, tuned HistGradientBoostingRegressor, and an ensemble blend
 - Framework: scikit-learn
-- Train/Test Split: 80 / 20
+- Train/Validation/Test Split: 64 / 16 / 20
 - Random Seed: 42
-- Metric: RMSE (Root Mean Squared Error)
+- Metrics: RMSE, MAE, R2
 
-RMSE is computed on a held-out test split and exposed via the API to communicate typical prediction error. This reflects a production ML mindset: predictions without uncertainty are incomplete.
+The training pipeline compares multiple candidates, tunes hyperparameters, and selects the best model on validation RMSE. Feature importance and comparison tables are persisted with the training reports.
 
 ---
 
@@ -86,6 +86,9 @@ RMSE is computed on a held-out test split and exposed via the API to communicate
 - GET /model-info  — Model metadata and evaluation metrics
 - POST /predict    — Predict median house value
 - POST /predict-batch — Predict multiple rows in one request
+- GET /compare/locations — Compare default profiles across regions
+- GET /trends/hpi — Public house price index trends
+- POST /insights — Actionable insights and sensitivity
 
 ### Request body for POST /predict
 
@@ -142,6 +145,16 @@ Then open:
 
 ---
 
+## Dashboard
+
+Run the analytics dashboard locally:
+
+    streamlit run app/dashboard_app.py
+
+The dashboard shows an interactive map, neighborhood comparisons, and market trends.
+
+---
+
 ## Training
 
 You can generate and persist model artifacts locally:
@@ -174,6 +187,25 @@ Key configuration:
     uvicorn api.app:app --host 0.0.0.0 --port $PORT
 
 - Health check path: /healthz
+
+---
+
+## Scalability and System Design
+
+- Stateless API instances can scale horizontally behind a load balancer.
+- Model artifacts load once per process; trend data is cached to disk.
+- Batch inference reduces request overhead for analytics workloads.
+- Cold-start training can be disabled in production by prebuilding artifacts.
+
+See [docs/architecture.md](docs/architecture.md) for system diagrams.
+
+---
+
+## Experimentation and Business Value
+
+- A/B testing framework and metrics are documented in [docs/experimentation.md](docs/experimentation.md).
+- Actionable insights include sensitivity to income changes and local trend context.
+- The dashboard provides comparison tools for stakeholder decision-making.
 
 ---
 ## Author

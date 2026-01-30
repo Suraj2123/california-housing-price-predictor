@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import Any, Dict
 
 import joblib
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
+from chpp.data_sources.fred import load_hpi_series, resolve_series_id, summarize_changes
+from chpp.data_sources.geo import default_payload_for_region, get_regions
 from chpp.features import ENGINEERED_FEATURES
 from chpp.predict import FEATURE_NAMES, predict_many, predict_one
 from chpp.train import train_model
@@ -57,6 +59,49 @@ class BatchPredictionRequest(BaseModel):
 
 class BatchPredictionResponse(BaseModel):
     predictions: list[PredictionResponse]
+
+
+class RegionSummary(BaseModel):
+    region_id: str
+    name: str
+    lat: float
+    lon: float
+
+
+class RegionComparisonItem(BaseModel):
+    region: RegionSummary
+    features: HousingPayload
+    prediction: PredictionResponse
+
+
+class RegionComparisonResponse(BaseModel):
+    items: list[RegionComparisonItem]
+
+
+class TrendPoint(BaseModel):
+    date: str
+    value: float
+
+
+class TrendResponse(BaseModel):
+    region_id: str
+    series_id: str
+    points: list[TrendPoint]
+    latest_value: float | None
+    change_12m_pct: float | None
+    change_60m_pct: float | None
+
+
+class Insight(BaseModel):
+    title: str
+    detail: str
+    severity: str
+
+
+class InsightsResponse(BaseModel):
+    insights: list[Insight]
+    trend: TrendResponse | None
+    sensitivity: Dict[str, float]
 
 
 @dataclass(frozen=True)
@@ -137,6 +182,31 @@ def _build_prediction_response(y: float, rmse: float | None) -> PredictionRespon
     )
 
 
+def _region_summary(region) -> RegionSummary:
+    return RegionSummary(
+        region_id=region.region_id,
+        name=region.name,
+        lat=region.lat,
+        lon=region.lon,
+    )
+
+
+def _trend_response(region_id: str, series_id: str, points_df) -> TrendResponse:
+    points = [
+        TrendPoint(date=row["date"].date().isoformat(), value=float(row["value"]))
+        for _, row in points_df.iterrows()
+    ]
+    summary = summarize_changes(points_df)
+    return TrendResponse(
+        region_id=region_id,
+        series_id=series_id,
+        points=points,
+        latest_value=summary.get("latest"),
+        change_12m_pct=summary.get("change_12m_pct"),
+        change_60m_pct=summary.get("change_60m_pct"),
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     return HTMLResponse((TEMPLATES_DIR / "index.html").read_text(encoding="utf-8"))
@@ -205,5 +275,99 @@ def predict_batch(payload: BatchPredictionRequest) -> BatchPredictionResponse:
 
     responses = [_build_prediction_response(pred, rmse) for pred in preds]
     return BatchPredictionResponse(predictions=responses)
+
+
+@app.get("/compare/locations", response_model=RegionComparisonResponse)
+def compare_locations(region_ids: str = Query(default="")) -> RegionComparisonResponse:
+    state = get_model_state()
+    if state.model is None:
+        raise HTTPException(status_code=500, detail=f"Model not ready: {state.error}")
+
+    regions = get_regions()
+    if region_ids:
+        requested = {rid.strip() for rid in region_ids.split(",") if rid.strip()}
+        regions = [region for region in regions if region.region_id in requested]
+        if not regions:
+            raise HTTPException(status_code=400, detail="No valid region_ids provided.")
+
+    payloads = [default_payload_for_region(region.region_id) for region in regions]
+    preds = predict_many(state.model, payloads)
+    rmse = _metrics_rmse(state.metrics)
+
+    items = []
+    for region, pred, payload in zip(regions, preds, payloads):
+        items.append(
+            RegionComparisonItem(
+                region=_region_summary(region),
+                features=HousingPayload(**payload),
+                prediction=_build_prediction_response(pred, rmse),
+            )
+        )
+    return RegionComparisonResponse(items=items)
+
+
+@app.get("/trends/hpi", response_model=TrendResponse)
+def trends_hpi(region_id: str = Query(default="us"), max_points: int = Query(default=240, ge=24)):
+    series = load_hpi_series(region_id=region_id)
+    points_df = series.points.sort_values("date").tail(max_points)
+    return _trend_response(region_id, series.series_id, points_df)
+
+
+@app.post("/insights", response_model=InsightsResponse)
+def insights(payload: HousingPayload, region_id: str | None = None) -> InsightsResponse:
+    state = get_model_state()
+    if state.model is None:
+        raise HTTPException(status_code=500, detail=f"Model not ready: {state.error}")
+
+    base_payload = _payload_to_dict(payload)
+    base_pred = predict_one(state.model, base_payload)
+
+    med_inc_up = dict(base_payload)
+    med_inc_up["MedInc"] = med_inc_up["MedInc"] * 1.1
+    med_inc_down = dict(base_payload)
+    med_inc_down["MedInc"] = med_inc_down["MedInc"] * 0.9
+    pred_up = predict_one(state.model, med_inc_up)
+    pred_down = predict_one(state.model, med_inc_down)
+
+    sensitivity = {
+        "medinc_up_10pct_usd": round(pred_up * 100_000, 2),
+        "medinc_down_10pct_usd": round(pred_down * 100_000, 2),
+        "base_usd": round(base_pred * 100_000, 2),
+    }
+
+    insights = [
+        Insight(
+            title="Income sensitivity",
+            detail="A 10% change in median income shifts predictions by "
+            f"{round((pred_up - pred_down) * 100_000, 2)} USD.",
+            severity="info",
+        )
+    ]
+
+    trend = None
+    if region_id:
+        try:
+            series_id = resolve_series_id(region_id)
+            series = load_hpi_series(region_id=region_id)
+            trend = _trend_response(region_id, series_id, series.points)
+            if trend.change_12m_pct is not None:
+                direction = "up" if trend.change_12m_pct > 0 else "down"
+                insights.append(
+                    Insight(
+                        title="Market momentum",
+                        detail=f"Local HPI is {direction} {round(abs(trend.change_12m_pct), 2)}% over 12 months.",
+                        severity="warning" if abs(trend.change_12m_pct) > 10 else "info",
+                    )
+                )
+        except Exception:
+            insights.append(
+                Insight(
+                    title="Trend data unavailable",
+                    detail="Unable to load HPI series; using model-only insights.",
+                    severity="info",
+                )
+            )
+
+    return InsightsResponse(insights=insights, trend=trend, sensitivity=sensitivity)
 
 
