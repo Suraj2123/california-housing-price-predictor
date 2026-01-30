@@ -188,6 +188,19 @@ Key configuration:
 
 - Health check path: /healthz
 
+### Railway (API + Dashboard)
+
+Deploy two services in the same Railway project:
+
+1. **API service**
+   - Build: `Dockerfile`
+   - Start: `uvicorn api.app:app --host 0.0.0.0 --port $PORT`
+2. **Dashboard service**
+   - Build: `Dockerfile.dashboard`
+   - Start: `streamlit run app/dashboard_app.py --server.address 0.0.0.0 --server.port $PORT`
+
+In the dashboard UI, set **API Base URL** to the API service URL so map and comparisons use live predictions.
+
 ---
 
 ## Scalability and System Design
