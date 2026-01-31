@@ -8,7 +8,6 @@ This project treats evaluation and uncertainty as first-class concerns, returnin
 
 ## Live Demo
 
-- Web App (Render): https://california-housing-price-predictor-m8ks.onrender.com/
 - Web App (Railway): https://chpp-demo-production.up.railway.app/
 - API Docs (Swagger): https://california-housing-price-predictor-m8ks.onrender.com/docs
 - Model Info: https://california-housing-price-predictor-m8ks.onrender.com/model-info
